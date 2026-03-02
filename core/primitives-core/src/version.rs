@@ -372,6 +372,10 @@ pub enum ProtocolFeature {
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
     InstantDeleteAccount,
+    /// Enable Dilithium (ML-DSA-87) post-quantum signature scheme for access keys.
+    /// This is a post-quantum cryptographic signature scheme standardized by NIST
+    /// as part of the FIPS 204 standard.
+    DilithiumSignatures,
 }
 
 impl ProtocolFeature {
@@ -496,6 +500,8 @@ impl ProtocolFeature {
 
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::ContinuousEpochSync => 201,
+            // Dilithium (ML-DSA-87) post-quantum signatures
+            ProtocolFeature::DilithiumSignatures => 202,
         }
     }
 

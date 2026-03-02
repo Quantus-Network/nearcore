@@ -454,6 +454,9 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let receiver_id = match public_key.key_type() {
         KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
         KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+        KeyType::DILITHIUM => {
+            unimplemented!("dilithium implicit accounts are not supported yet")
+        }
     };
 
     let transfer_cost = match receiver_id.get_account_type() {
@@ -543,6 +546,9 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let receiver_id = match public_key.key_type() {
         KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
         KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+        KeyType::DILITHIUM => {
+            unimplemented!("dilithium implicit accounts are not supported yet")
+        }
     };
 
     let transaction_result = node_user

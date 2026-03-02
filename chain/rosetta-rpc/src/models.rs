@@ -1271,6 +1271,9 @@ impl From<near_crypto::KeyType> for CurveType {
         match key_type {
             near_crypto::KeyType::ED25519 => Self::Edwards25519,
             near_crypto::KeyType::SECP256K1 => Self::Secp256k1,
+            near_crypto::KeyType::DILITHIUM => {
+                unimplemented!("Dilithium keys are not implemented in Rosetta yet")
+            }
         }
     }
 }
@@ -1338,6 +1341,9 @@ impl From<near_crypto::KeyType> for SignatureType {
             near_crypto::KeyType::ED25519 => Self::Ed25519,
             near_crypto::KeyType::SECP256K1 => {
                 unimplemented!("SECP256K1 keys are not implemented in Rosetta yet")
+            }
+            near_crypto::KeyType::DILITHIUM => {
+                unimplemented!("Dilithium keys are not implemented in Rosetta yet")
             }
         }
     }

@@ -1,5 +1,9 @@
+#[cfg(feature = "rand")]
+use crate::signature::{DilithiumPublicKey, DilithiumSecretKey};
 use crate::signature::{KeyType, PublicKey, SecretKey};
 use crate::{InMemorySigner, Signature};
+#[cfg(feature = "rand")]
+use qp_rusty_crystals_dilithium::ml_dsa_87;
 
 #[cfg(feature = "rand")]
 fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::SigningKey {
@@ -22,6 +26,17 @@ fn secp256k1_secret_key_from_seed(seed: &str) -> secp256k1::SecretKey {
     secp256k1::SecretKey::new(&mut rng)
 }
 
+#[cfg(feature = "rand")]
+fn dilithium_keypair_from_seed(seed: &str) -> ml_dsa_87::Keypair {
+    use qp_rusty_crystals_dilithium::SensitiveBytes32;
+
+    let seed_bytes = seed.as_bytes();
+    let len = std::cmp::min(32, seed_bytes.len());
+    let mut entropy = [b' '; 32];
+    entropy[..len].copy_from_slice(&seed_bytes[..len]);
+    ml_dsa_87::Keypair::generate(SensitiveBytes32::from(&mut entropy))
+}
+
 impl PublicKey {
     #[cfg(feature = "rand")]
     pub fn from_seed(key_type: KeyType, seed: &str) -> Self {
@@ -36,6 +51,10 @@ impl PublicKey {
                 let secret_key = SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed));
                 PublicKey::SECP256K1(secret_key.public_key().unwrap_as_secp256k1().clone())
             }
+            KeyType::DILITHIUM => {
+                let keypair = dilithium_keypair_from_seed(seed);
+                PublicKey::DILITHIUM(DilithiumPublicKey(keypair.public.to_bytes()))
+            }
         }
     }
 }
@@ -49,6 +68,10 @@ impl SecretKey {
                 SecretKey::ED25519(crate::signature::ED25519SecretKey(keypair.to_keypair_bytes()))
             }
             KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
+            KeyType::DILITHIUM => {
+                let keypair = dilithium_keypair_from_seed(seed);
+                SecretKey::DILITHIUM(DilithiumSecretKey(keypair.to_bytes()))
+            }
         }
     }
 }
