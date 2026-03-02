@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 pub static SECP256K1: LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
     LazyLock::new(secp256k1::Secp256k1::new);
 
-#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum KeyType {
     ED25519 = 0,
@@ -1118,6 +1118,43 @@ mod tests {
         let signature_str: String = signature.to_string();
         let signature2: Signature = signature_str.parse().unwrap();
         assert_eq!(signature, signature2);
+    }
+
+    #[cfg(feature = "rand")]
+    #[test]
+    fn test_dilithium_sign_verify() {
+        use sha2::Digest;
+
+        // Test key generation
+        let sk = SecretKey::from_seed(KeyType::DILITHIUM, "dilithium_test_seed");
+        let pk = sk.public_key();
+        assert_eq!(pk.key_type(), KeyType::DILITHIUM);
+
+        // Test signing and verification
+        let data = sha2::Sha256::digest(b"test message for dilithium").to_vec();
+        let signature = sk.sign(&data);
+        assert_eq!(signature.key_type(), KeyType::DILITHIUM);
+        assert!(signature.verify(&data, &pk));
+
+        // Test that verification fails with wrong data
+        let wrong_data = sha2::Sha256::digest(b"wrong message").to_vec();
+        assert!(!signature.verify(&wrong_data, &pk));
+
+        // Test that verification fails with wrong key
+        let sk2 = SecretKey::from_seed(KeyType::DILITHIUM, "different_seed");
+        let pk2 = sk2.public_key();
+        assert!(!signature.verify(&data, &pk2));
+
+        // Test string serialization roundtrip
+        let pk_str = pk.to_string();
+        assert!(pk_str.starts_with("dilithium:"));
+        let pk_parsed: PublicKey = pk_str.parse().unwrap();
+        assert_eq!(pk, pk_parsed);
+
+        let sig_str = signature.to_string();
+        assert!(sig_str.starts_with("dilithium:"));
+        let sig_parsed: Signature = sig_str.parse().unwrap();
+        assert_eq!(signature, sig_parsed);
     }
 
     #[cfg(feature = "rand")]
