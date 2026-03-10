@@ -1346,6 +1346,7 @@ impl TryFrom<near_crypto::KeyType> for SignatureType {
             near_crypto::KeyType::DILITHIUM => Err(crate::errors::ErrorKind::InvalidInput(
                 "Dilithium keys are not implemented in Rosetta yet".to_string(),
             )),
+        }
     }
 }
 
