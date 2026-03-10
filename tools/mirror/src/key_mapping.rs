@@ -1,9 +1,13 @@
 // cspell:words hkdf
 use hkdf::Hkdf;
-use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
+use near_crypto::{
+    DilithiumPublicKey, DilithiumSecretKey, ED25519PublicKey, ED25519SecretKey, PublicKey,
+    Secp256K1PublicKey, SecretKey,
+};
 use near_primitives::types::AccountId;
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives_core::account::id::AccountType;
+use qp_rusty_crystals_dilithium::{SensitiveBytes32, ml_dsa_87};
 use sha2::Sha256;
 
 // there is nothing special about this key, it's just some randomly generated one.
@@ -93,6 +97,24 @@ fn map_secp256k1(
     secp256k1_from_slice(&mut buf, public)
 }
 
+fn map_dilithium(
+    public: &DilithiumPublicKey,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+) -> DilithiumSecretKey {
+    let mut entropy = [0u8; 32];
+    match secret {
+        Some(secret) => {
+            let hk = Hkdf::<Sha256>::new(None, secret);
+            hk.expand(public.as_ref(), &mut entropy).unwrap();
+        }
+        None => {
+            entropy.copy_from_slice(&public.as_ref()[..32]);
+        }
+    };
+    let keypair = ml_dsa_87::Keypair::generate(SensitiveBytes32::from(&mut entropy));
+    DilithiumSecretKey(keypair.to_bytes())
+}
+
 // This maps the public key to a secret key so that we can sign
 // transactions on the target chain.  If secret is None, then we just
 // use the bytes of the public key directly, otherwise we feed the
@@ -101,9 +123,7 @@ pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>
     match key {
         PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
         PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
-        PublicKey::DILITHIUM(_) => {
-            unimplemented!("Dilithium key mapping is not implemented yet")
-        }
+        PublicKey::DILITHIUM(k) => SecretKey::DILITHIUM(map_dilithium(k, secret)),
     }
 }
 

@@ -4,8 +4,8 @@
 pub use errors::{ParseKeyError, ParseKeyTypeError, ParseSignatureError};
 pub use key_file::KeyFile;
 pub use signature::{
-    DilithiumPublicKey, DilithiumSignature, ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey,
-    Secp256K1PublicKey, Secp256K1Signature, SecretKey, Signature,
+    DilithiumPublicKey, DilithiumSecretKey, DilithiumSignature, ED25519PublicKey, ED25519SecretKey,
+    KeyType, PublicKey, Secp256K1PublicKey, Secp256K1Signature, SecretKey, Signature,
 };
 pub use signer::{EmptySigner, InMemorySigner, Signer};
 

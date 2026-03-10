@@ -4655,6 +4655,7 @@ dependencies = [
  "nearcore",
  "openssl-probe",
  "parking_lot 0.12.1",
+ "qp-rusty-crystals-dilithium",
  "rand_core 0.6.4",
  "rocksdb",
  "secp256k1",

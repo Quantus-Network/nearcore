@@ -32,7 +32,7 @@ subtle.workspace = true
 thiserror.workspace = true
 near-config-utils.workspace = true
 near-schema-checker-lib.workspace = true
-qp-rusty-crystals-dilithium = "2"
+qp-rusty-crystals-dilithium.workspace = true
 rand = { workspace = true, optional = true }
 schemars = {workspace = true, optional = true }
 

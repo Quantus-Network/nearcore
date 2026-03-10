@@ -330,6 +330,7 @@ prometheus = { version = "0.13.1", default-features = false }
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
 quote = "1.0"
+qp-rusty-crystals-dilithium = "2.1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_core = "0.6.1"
