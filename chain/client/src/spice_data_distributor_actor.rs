@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
+use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::get_receipt_proof;
+use crate::chunk_executor_actor::get_witness;
+use crate::chunk_executor_actor::receipt_proof_exists;
+use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use itertools::Itertools as _;
@@ -49,12 +48,11 @@ use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::get_receipt_proof;
-use crate::chunk_executor_actor::get_witness;
-use crate::chunk_executor_actor::receipt_proof_exists;
-use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -323,12 +321,7 @@ impl SpiceDataDistributorActor {
         let me = signer.validator_id();
         let block = self.chain_store.get_block(data_id.block_hash())?;
         let (recipients, producers) = self.recipients_and_producers(&data_id, &block)?;
-        if !producers.contains(me) {
-            // TODO(spice): In chunk executor make sure we don't try to send out receipts and witnesses
-            // if we aren't a respective producer (though still may be tracking shards) and make
-            // this if check into debug_assert that producers never contain me.
-            return Ok(());
-        }
+        debug_assert!(producers.contains(me));
         debug_assert!(!recipients.contains(me));
         let me_ord = producers.iter().position(|p| p == me).unwrap();
 

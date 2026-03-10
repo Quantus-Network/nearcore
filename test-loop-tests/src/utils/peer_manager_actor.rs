@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet, hash_map};
-use std::sync::Arc;
-
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
@@ -36,6 +33,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
+use std::collections::{HashMap, HashSet, hash_map};
+use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
 /// We skip over the message handlers from view client.
@@ -112,6 +111,7 @@ pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
 
     client_sender: ClientSenderForTestLoopNetwork,
+    shared_state: TestLoopNetworkSharedState,
     genesis_id: GenesisId,
     last_block_headers: HashMap<PeerInfo, BlockHeader>,
 }
@@ -161,7 +161,13 @@ impl TestLoopPeerManagerActor {
             network_message_to_state_snapshot_handler(),
             network_message_to_spice_data_distributor_handler(&account_id, shared_state.clone()),
         ];
-        Self { handlers, client_sender, genesis_id, last_block_headers: HashMap::new() }
+        Self {
+            handlers,
+            client_sender,
+            shared_state: shared_state.clone(),
+            genesis_id,
+            last_block_headers: HashMap::new(),
+        }
     }
 
     /// Register a new handler to override the default handlers.
@@ -184,7 +190,7 @@ impl TestLoopPeerManagerActor {
                     .last_block_headers
                     .iter()
                     .map(|(peer_info, header)| HighestHeightPeerInfo {
-                        archival: false,
+                        archival: self.shared_state.is_peer_archival(&peer_info.id),
                         genesis_id: self.genesis_id.clone(),
                         highest_block_hash: *header.hash(),
                         highest_block_height: header.height(),
@@ -217,6 +223,7 @@ struct TestLoopNetworkSharedStateInner {
     drop_events_senders: Arc<OneClientSenders>,
     route_back: HashMap<CryptoHash, PeerId>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
+    archival_peer_ids: HashSet<PeerId>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -271,6 +278,7 @@ impl TestLoopNetworkSharedState {
             drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
             route_back: HashMap::new(),
             disallowed_peer_links: HashMap::new(),
+            archival_peer_ids: HashSet::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
@@ -379,6 +387,14 @@ impl TestLoopNetworkSharedState {
             return guard.drop_events_senders.clone();
         }
         guard.senders.get(peer_id).unwrap().clone()
+    }
+
+    pub fn mark_archival(&self, peer_id: &PeerId) {
+        self.0.lock().archival_peer_ids.insert(peer_id.clone());
+    }
+
+    fn is_peer_archival(&self, peer_id: &PeerId) -> bool {
+        self.0.lock().archival_peer_ids.contains(peer_id)
     }
 
     fn accounts(&self) -> Vec<AccountId> {
@@ -588,9 +604,12 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
-                let response = future.await.unwrap().unwrap_or_else(|| {
-                    panic!("Expect block with {hash} to be available on {peer_id}")
-                });
+                let Some(response) = future.await.unwrap() else {
+                    // The peer may have GC'd this block. In production, the
+                    // requester would simply not receive a response and retry
+                    // with another peer. Mimic that by silently dropping.
+                    return;
+                };
                 let future = responder.send_async(
                     BlockResponse { block: response, peer_id, was_requested: true }.span_wrap(),
                 );

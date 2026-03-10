@@ -3,7 +3,6 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -791,6 +790,11 @@ pub async fn start_with_config_and_synchronization_impl(
         rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
     );
+
+    #[cfg(feature = "rpc_probe")]
+    if let Some(rpc_probe_config) = config.rpc_probe {
+        near_rpc_probe::start(rpc_probe_config);
+    }
 
     #[cfg(feature = "actor_instrumentation_testing")]
     near_async::instrumentation::testing::spawn_actors_for_testing_instrumentation(

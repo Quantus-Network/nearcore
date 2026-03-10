@@ -1,3 +1,10 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::account::create_account_id;
+use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
+use itertools::Itertools;
 use near_async::messaging::{CanSend, Handler};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -18,14 +25,6 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
-
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
-
-use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -454,18 +453,17 @@ fn run_test_with_added_node(state: TestState) {
     );
 
     // Add new node which will sync from scratch.
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
-    let account_id: AccountId = "sync-from-scratch".parse().unwrap();
-    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(account_id.clone())
+    let identifier = "sync-from-scratch";
+    let new_node_state = env
+        .node_state_builder()
+        .account_id(&create_account_id(identifier))
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
         })
         .build();
-    env.add_node(account_id.as_str(), new_node_state);
+    env.add_node(identifier, new_node_state);
 
     env.test_loop.run_until(
         |data| {
@@ -1071,20 +1069,22 @@ fn slow_test_state_sync_no_parts_provided() {
     );
 
     // Step 3: Start a new node
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
-    let account_id: AccountId = "sync-no-parts".parse().unwrap();
-    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(account_id.clone())
+    let identifier = "sync-no-parts";
+    let new_node_state = env
+        .node_state_builder()
+        .account_id(&create_account_id(identifier))
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.state_sync_enabled = true;
             config.state_sync = StateSyncConfig::default();
+            // Prevent epoch sync from intercepting this test; we want state
+            // sync to handle the gap.
+            config.epoch_sync.epoch_sync_horizon_num_epochs = 10;
         })
         .build();
-    env.add_node(account_id.as_str(), new_node_state);
+    env.add_node(identifier, new_node_state);
 
     // Get the newly added node
     let syncing_node_data = env.node_datas.last().unwrap();

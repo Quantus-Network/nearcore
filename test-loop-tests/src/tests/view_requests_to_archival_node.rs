@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::execute_money_transfers_with_delay;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::TestLoopV2;
@@ -24,11 +26,7 @@ use near_primitives::views::{
     BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     StateChangeCauseView, StateChangeKindView, StateChangeValueView, StateChangesRequestView,
 };
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::execute_money_transfers_with_delay;
+use std::collections::HashMap;
 
 const NUM_VALIDATORS: usize = 2;
 const NUM_ACCOUNTS: usize = 20;
@@ -62,8 +60,7 @@ fn slow_test_view_requests_to_archival_node() {
     let all_clients: Vec<AccountId> =
         accounts.iter().take(NUM_VALIDATORS + 1).cloned().collect_vec();
     // Contains the account of the non-validator archival node.
-    let archival_clients: HashSet<AccountId> =
-        vec![all_clients[NUM_VALIDATORS].clone()].into_iter().collect();
+    let archival_clients: Vec<AccountId> = vec![all_clients[NUM_VALIDATORS].clone()];
     let boundary_accounts =
         ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);

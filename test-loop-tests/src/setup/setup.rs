@@ -1,6 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-
+use super::drop_condition::ClientToShardsManagerSender;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
+use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
@@ -43,13 +44,9 @@ use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
-
-use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
-use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
-
-use super::drop_condition::ClientToShardsManagerSender;
-use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 #[allow(clippy::large_stack_frames)]
 pub fn setup_client(
@@ -59,6 +56,7 @@ pub fn setup_client(
     shared_state: &SharedState,
 ) -> NodeExecutionData {
     let NodeSetupState { account_id, client_config, storage } = node_state;
+    let is_archival = client_config.archive;
     let SharedState {
         genesis,
         tempdir,
@@ -577,12 +575,16 @@ pub fn setup_client(
         cloud_archival_writer_handle,
         jsonrpc_transport,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
+        pending_nonces: Default::default(),
     };
 
     // Add the client to the network shared state before returning data
     // Note that this can potentially overwrite an existing client with the same account_id
     // and all new messages would be redirected to the new client.
     network_shared_state.add_client(&node_data);
+    if is_archival {
+        network_shared_state.mark_archival(&node_data.peer_id);
+    }
 
     // Register all accumulated drop conditions
     for condition in drop_conditions {

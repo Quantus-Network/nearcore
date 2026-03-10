@@ -1,6 +1,8 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
+use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -14,11 +16,8 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_store::adapter::StoreAdapter;
-
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
-use crate::setup::env::TestLoopEnv;
-use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const NUM_CLIENTS: usize = 4;
 
@@ -78,12 +77,10 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
 }
 
 fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> TestLoopEnv {
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
     let identifier = format!("account{}", env.node_datas.len());
-    let account_id = identifier.parse().unwrap();
-    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(account_id)
+    let node_state = env
+        .node_state_builder()
+        .account_id(&create_account_id(&identifier))
         .config_modifier(|config| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
             config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
@@ -161,10 +158,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             "AwaitingPeers",
             // State after having enough peers.
             "NoSync",
-            // EpochSync should be entered first.
+            // EpochSync should be entered and succeed.
             "EpochSync",
-            // EpochSync should succeed.
-            "EpochSyncDone",
             // Header sync happens next to bring forward HEADER_HEAD.
             "HeaderSync",
             // State sync downloads the state from state dumps.

@@ -1,9 +1,3 @@
-use std::cell::RefCell;
-use std::cmp::max;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
@@ -27,6 +21,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
+use std::cell::RefCell;
+use std::cmp::max;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
 
 #[test]
 fn slow_test_repro_1183() {
@@ -191,7 +190,7 @@ fn slow_test_sync_from_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .cold_storage_archival_clients([clients[0].clone()].into())
+        .cold_storage_archival_clients(vec![clients[0].clone()])
         .config_modifier(move |config, idx| {
             config.min_block_production_delay = block_prod_time;
             config.max_block_production_delay = 3 * block_prod_time;
