@@ -590,13 +590,20 @@ async fn construction_derive(
     let public_key: near_crypto::PublicKey = (&public_key)
         .try_into()
         .map_err(|_| errors::ErrorKind::InvalidInput("Invalid PublicKey".to_string()))?;
-    let address = if let near_crypto::KeyType::ED25519 = public_key.key_type() {
-        hex::encode(public_key.key_data())
-    } else {
-        return Err(errors::ErrorKind::InvalidInput(
-            "Only Ed25519 keys are allowed for implicit accounts".to_string(),
-        )
-        .into());
+    let address = match public_key.key_type() {
+        near_crypto::KeyType::ED25519 => hex::encode(public_key.key_data()),
+        near_crypto::KeyType::DILITHIUM => {
+            return Err(errors::ErrorKind::InvalidInput(
+                "Dilithium keys cannot be used for implicit account derivation; only Ed25519 is supported.".to_string(),
+            )
+            .into());
+        }
+        near_crypto::KeyType::SECP256K1 => {
+            return Err(errors::ErrorKind::InvalidInput(
+                "Only Ed25519 keys are allowed for implicit accounts".to_string(),
+            )
+            .into());
+        }
     };
 
     Ok(Json(models::ConstructionDeriveResponse {

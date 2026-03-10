@@ -1251,6 +1251,9 @@ impl TryFrom<&PublicKey> for near_crypto::PublicKey {
             CurveType::Secp256k1 => {
                 near_crypto::PublicKey::SECP256K1((hex_bytes.as_ref() as &[u8]).try_into()?)
             }
+            CurveType::Dilithium => near_crypto::PublicKey::DILITHIUM(
+                near_crypto::DilithiumPublicKey::try_from(hex_bytes.as_ref() as &[u8])?,
+            ),
         })
     }
 }
@@ -1263,6 +1266,8 @@ pub(crate) enum CurveType {
     Edwards25519,
     /// SEC compressed - 33 bytes (<https://secg.org/sec1-v2.pdf#subsubsection.2.3.3>)
     Secp256k1,
+    /// Post-quantum Dilithium (ML-DSA-87) - 2592 bytes (NIST FIPS 204).
+    Dilithium,
 }
 
 impl From<near_crypto::KeyType> for CurveType {
@@ -1270,9 +1275,7 @@ impl From<near_crypto::KeyType> for CurveType {
         match key_type {
             near_crypto::KeyType::ED25519 => Self::Edwards25519,
             near_crypto::KeyType::SECP256K1 => Self::Secp256k1,
-            near_crypto::KeyType::DILITHIUM => {
-                unimplemented!("Dilithium keys are not implemented in Rosetta yet")
-            }
+            near_crypto::KeyType::DILITHIUM => Self::Dilithium,
         }
     }
 }
@@ -1320,6 +1323,8 @@ impl TryFrom<&Signature> for near_crypto::Signature {
 pub(crate) enum SignatureType {
     /// `R (32-byte) || s (32-bytes)` - `64 bytes`
     Ed25519,
+    /// Post-quantum Dilithium (ML-DSA-87) - 4627 bytes (NIST FIPS 204).
+    Dilithium,
     /* Rosetta Spec also provides:
      *
      * /// `r (32-bytes) || s (32-bytes)` - `64 bytes`
@@ -1343,9 +1348,7 @@ impl TryFrom<near_crypto::KeyType> for SignatureType {
             near_crypto::KeyType::SECP256K1 => Err(crate::errors::ErrorKind::InvalidInput(
                 "SECP256K1 keys are not supported in Rosetta".to_string(),
             )),
-            near_crypto::KeyType::DILITHIUM => Err(crate::errors::ErrorKind::InvalidInput(
-                "Dilithium keys are not implemented in Rosetta yet".to_string(),
-            )),
+            near_crypto::KeyType::DILITHIUM => Ok(Self::Dilithium),
         }
     }
 }
@@ -1354,6 +1357,7 @@ impl From<SignatureType> for near_crypto::KeyType {
     fn from(signature_type: SignatureType) -> Self {
         match signature_type {
             SignatureType::Ed25519 => Self::ED25519,
+            SignatureType::Dilithium => Self::DILITHIUM,
         }
     }
 }
@@ -1452,14 +1456,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_curve_type_from_dilithium() {
+        let curve_type = CurveType::from(near_crypto::KeyType::DILITHIUM);
+        assert_eq!(curve_type, CurveType::Dilithium);
+    }
+
+    #[test]
     fn test_signature_type_try_from_ed25519() {
         let result = SignatureType::try_from(near_crypto::KeyType::ED25519);
         assert_eq!(result.unwrap(), SignatureType::Ed25519);
     }
 
     #[test]
+    fn test_signature_type_try_from_dilithium() {
+        let result = SignatureType::try_from(near_crypto::KeyType::DILITHIUM);
+        assert_eq!(result.unwrap(), SignatureType::Dilithium);
+    }
+
+    #[test]
     fn test_signature_type_try_from_secp256k1_returns_error() {
         let result = SignatureType::try_from(near_crypto::KeyType::SECP256K1);
         assert!(result.is_err());
+    }
+
+    /// ML-DSA-87 (Dilithium) public key size in bytes (NIST FIPS 204).
+    const DILITHIUM_PUBLIC_KEY_BYTES: usize = 2592;
+
+    #[test]
+    fn test_public_key_dilithium_roundtrip() {
+        let rosetta_pk = PublicKey {
+            curve_type: CurveType::Dilithium,
+            hex_bytes: vec![0u8; DILITHIUM_PUBLIC_KEY_BYTES].into(),
+        };
+        let near_pk: near_crypto::PublicKey = (&rosetta_pk).try_into().unwrap();
+        assert_eq!(near_pk.key_type(), near_crypto::KeyType::DILITHIUM);
+        let back = PublicKey::from(&near_pk);
+        assert_eq!(back.curve_type, CurveType::Dilithium);
+        assert_eq!(back.hex_bytes, rosetta_pk.hex_bytes);
     }
 }
