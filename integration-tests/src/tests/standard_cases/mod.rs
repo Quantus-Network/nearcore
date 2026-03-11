@@ -1017,6 +1017,20 @@ pub fn test_add_key(node: impl Node) {
     assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
 }
 
+/// Same as test_add_key but uses a Dilithium key. Requires protocol version with DilithiumSignatures.
+pub fn test_add_key_dilithium(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let signer2 =
+        InMemorySigner::from_seed("test".parse().unwrap(), KeyType::DILITHIUM, "dilithium_seed")
+            .into();
+    let node_user = node.user();
+
+    add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
+
+    assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
+}
+
 pub fn test_add_existing_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();

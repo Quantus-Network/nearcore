@@ -14,7 +14,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -58,6 +58,7 @@ pub struct RuntimeUser {
     pub epoch_info_provider: MockEpochInfoProvider,
     pub runtime_config: Arc<RuntimeConfig>,
     pub gas_price: Balance,
+    pub protocol_version: ProtocolVersion,
 }
 
 impl RuntimeUser {
@@ -66,6 +67,22 @@ impl RuntimeUser {
         signer: Arc<Signer>,
         client: Arc<RwLock<MockClient>>,
         gas_price: Balance,
+    ) -> Self {
+        Self::new_with_protocol_version(
+            account_id,
+            signer,
+            client,
+            gas_price,
+            near_primitives::version::PROTOCOL_VERSION,
+        )
+    }
+
+    pub fn new_with_protocol_version(
+        account_id: AccountId,
+        signer: Arc<Signer>,
+        client: Arc<RwLock<MockClient>>,
+        gas_price: Balance,
+        protocol_version: ProtocolVersion,
     ) -> Self {
         let runtime_config = Arc::new(client.read().runtime_config.clone());
         RuntimeUser {
@@ -79,6 +96,7 @@ impl RuntimeUser {
             epoch_info_provider: MockEpochInfoProvider::default(),
             runtime_config,
             gas_price,
+            protocol_version,
         }
     }
 
@@ -199,7 +217,7 @@ impl RuntimeUser {
             gas_limit: None,
             random_seed: Default::default(),
             epoch_id: Default::default(),
-            current_protocol_version: PROTOCOL_VERSION,
+            current_protocol_version: self.protocol_version,
             config: self.runtime_config.clone(),
             cache: None,
             is_new_chunk: true,
@@ -331,7 +349,7 @@ impl User for RuntimeUser {
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,
-            current_protocol_version: PROTOCOL_VERSION,
+            current_protocol_version: self.protocol_version,
             cache: apply_state.cache,
         };
         result.result = self
