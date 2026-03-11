@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
+use qp_rusty_crystals_dilithium::ml_dsa_87;
 use secp256k1::Message;
 use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
@@ -13,11 +14,12 @@ use std::sync::LazyLock;
 pub static SECP256K1: LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
     LazyLock::new(secp256k1::Secp256k1::new);
 
-#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
+    DILITHIUM = 2,
 }
 
 impl Display for KeyType {
@@ -25,6 +27,7 @@ impl Display for KeyType {
         f.write_str(match self {
             KeyType::ED25519 => "ed25519",
             KeyType::SECP256K1 => "secp256k1",
+            KeyType::DILITHIUM => "dilithium",
         })
     }
 }
@@ -37,6 +40,7 @@ impl FromStr for KeyType {
         match lowercase_key_type.as_str() {
             "ed25519" => Ok(KeyType::ED25519),
             "secp256k1" => Ok(KeyType::SECP256K1),
+            "dilithium" => Ok(KeyType::DILITHIUM),
             _ => Err(Self::Err::UnknownKeyType { unknown_key_type: lowercase_key_type }),
         }
     }
@@ -49,6 +53,7 @@ impl TryFrom<u8> for KeyType {
         match value {
             0 => Ok(KeyType::ED25519),
             1 => Ok(KeyType::SECP256K1),
+            2 => Ok(KeyType::DILITHIUM),
             unknown_key_type => {
                 Err(Self::Error::UnknownKeyType { unknown_key_type: unknown_key_type.to_string() })
             }
@@ -114,6 +119,31 @@ impl std::fmt::Debug for ED25519PublicKey {
     }
 }
 
+/// Dilithium (ML-DSA-87) public key wrapper.
+#[derive(
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
+)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
+#[as_ref(forward)]
+pub struct DilithiumPublicKey(pub [u8; ml_dsa_87::PUBLICKEYBYTES]);
+
+impl TryFrom<&[u8]> for DilithiumPublicKey {
+    type Error = crate::errors::ParseKeyError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
+            expected_length: ml_dsa_87::PUBLICKEYBYTES,
+            received_length: data.len(),
+        })
+    }
+}
+
+impl std::fmt::Debug for DilithiumPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        Display::fmt(&DilithiumBs58(&self.0), f)
+    }
+}
+
 /// Public key container supporting different curves.
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, ProtocolSchema)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
@@ -122,6 +152,8 @@ pub enum PublicKey {
     ED25519(ED25519PublicKey),
     /// 512 bit elliptic curve based public-key used in Bitcoin's public-key cryptography.
     SECP256K1(Secp256K1PublicKey),
+    /// Post-quantum Dilithium (ML-DSA-87) public key.
+    DILITHIUM(DilithiumPublicKey),
 }
 
 impl PublicKey {
@@ -129,9 +161,11 @@ impl PublicKey {
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
+        const DILITHIUM_LEN: usize = ml_dsa_87::PUBLICKEYBYTES + 1;
         match self {
             Self::ED25519(_) => ED25519_LEN,
             Self::SECP256K1(_) => 65,
+            Self::DILITHIUM(_) => DILITHIUM_LEN,
         }
     }
 
@@ -141,6 +175,9 @@ impl PublicKey {
                 PublicKey::ED25519(ED25519PublicKey([0u8; ed25519_dalek::PUBLIC_KEY_LENGTH]))
             }
             KeyType::SECP256K1 => PublicKey::SECP256K1(Secp256K1PublicKey([0u8; 64])),
+            KeyType::DILITHIUM => {
+                PublicKey::DILITHIUM(DilithiumPublicKey([0u8; ml_dsa_87::PUBLICKEYBYTES]))
+            }
         }
     }
 
@@ -148,6 +185,7 @@ impl PublicKey {
         match self {
             Self::ED25519(_) => KeyType::ED25519,
             Self::SECP256K1(_) => KeyType::SECP256K1,
+            Self::DILITHIUM(_) => KeyType::DILITHIUM,
         }
     }
 
@@ -155,20 +193,28 @@ impl PublicKey {
         match self {
             Self::ED25519(key) => key.as_ref(),
             Self::SECP256K1(key) => key.as_ref(),
+            Self::DILITHIUM(key) => key.as_ref(),
         }
     }
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519PublicKey {
         match self {
             Self::ED25519(key) => key,
-            Self::SECP256K1(_) => panic!(),
+            Self::SECP256K1(_) | Self::DILITHIUM(_) => panic!(),
         }
     }
 
     pub fn unwrap_as_secp256k1(&self) -> &Secp256K1PublicKey {
         match self {
             Self::SECP256K1(key) => key,
-            Self::ED25519(_) => panic!(),
+            Self::ED25519(_) | Self::DILITHIUM(_) => panic!(),
+        }
+    }
+
+    pub fn unwrap_as_dilithium(&self) -> &DilithiumPublicKey {
+        match self {
+            Self::DILITHIUM(key) => key,
+            Self::ED25519(_) | Self::SECP256K1(_) => panic!(),
         }
     }
 }
@@ -186,17 +232,27 @@ impl Hash for PublicKey {
                 state.write_u8(1u8);
                 state.write(&public_key.0);
             }
+            PublicKey::DILITHIUM(public_key) => {
+                state.write_u8(2u8);
+                state.write(&public_key.0);
+            }
         }
     }
 }
 
 impl Display for PublicKey {
     fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
-        let (key_type, key_data) = match self {
-            PublicKey::ED25519(public_key) => (KeyType::ED25519, &public_key.0[..]),
-            PublicKey::SECP256K1(public_key) => (KeyType::SECP256K1, &public_key.0[..]),
-        };
-        write!(fmt, "{}:{}", key_type, Bs58(key_data))
+        match self {
+            PublicKey::ED25519(public_key) => {
+                write!(fmt, "{}:{}", KeyType::ED25519, Bs58(&public_key.0[..]))
+            }
+            PublicKey::SECP256K1(public_key) => {
+                write!(fmt, "{}:{}", KeyType::SECP256K1, Bs58(&public_key.0[..]))
+            }
+            PublicKey::DILITHIUM(public_key) => {
+                write!(fmt, "{}:{}", KeyType::DILITHIUM, DilithiumBs58(&public_key.0[..]))
+            }
+        }
     }
 }
 
@@ -217,6 +273,10 @@ impl BorshSerialize for PublicKey {
                 BorshSerialize::serialize(&1u8, writer)?;
                 writer.write_all(&public_key.0)?;
             }
+            PublicKey::DILITHIUM(public_key) => {
+                BorshSerialize::serialize(&2u8, writer)?;
+                writer.write_all(&public_key.0)?;
+            }
         }
         Ok(())
     }
@@ -231,6 +291,9 @@ impl BorshDeserialize for PublicKey {
                 Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
             KeyType::SECP256K1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
+                BorshDeserialize::deserialize_reader(rd)?,
+            ))),
+            KeyType::DILITHIUM => Ok(PublicKey::DILITHIUM(DilithiumPublicKey(
                 BorshDeserialize::deserialize_reader(rd)?,
             ))),
         }
@@ -268,6 +331,9 @@ impl FromStr for PublicKey {
         Ok(match key_type {
             KeyType::ED25519 => Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?)),
             KeyType::SECP256K1 => Self::SECP256K1(Secp256K1PublicKey(decode_bs58(key_data)?)),
+            KeyType::DILITHIUM => {
+                Self::DILITHIUM(DilithiumPublicKey(decode_bs58_dilithium_pk(key_data)?))
+            }
         })
     }
 }
@@ -295,6 +361,12 @@ impl From<Secp256K1PublicKey> for PublicKey {
     }
 }
 
+impl From<DilithiumPublicKey> for PublicKey {
+    fn from(dilithium: DilithiumPublicKey) -> Self {
+        Self::DILITHIUM(dilithium)
+    }
+}
+
 #[derive(Clone, Eq)]
 // This is actually a keypair, because ed25519_dalek api only has keypair.sign
 // From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
@@ -313,11 +385,30 @@ impl std::fmt::Debug for ED25519SecretKey {
     }
 }
 
+/// Dilithium (ML-DSA-87) secret key wrapper.
+/// This stores the full keypair bytes (secret + public) for signing operations.
+#[derive(Clone, Eq)]
+pub struct DilithiumSecretKey(pub [u8; ml_dsa_87::KEYPAIRBYTES]);
+
+impl PartialEq for DilithiumSecretKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0[..ml_dsa_87::SECRETKEYBYTES] == other.0[..ml_dsa_87::SECRETKEYBYTES]
+    }
+}
+
+impl std::fmt::Debug for DilithiumSecretKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        // Only display secret key portion (not the public key)
+        Display::fmt(&DilithiumBs58(&self.0[..ml_dsa_87::SECRETKEYBYTES]), f)
+    }
+}
+
 /// Secret key container supporting different curves.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SecretKey {
     ED25519(ED25519SecretKey),
     SECP256K1(secp256k1::SecretKey),
+    DILITHIUM(DilithiumSecretKey),
 }
 
 impl SecretKey {
@@ -325,11 +416,13 @@ impl SecretKey {
         match self {
             SecretKey::ED25519(_) => KeyType::ED25519,
             SecretKey::SECP256K1(_) => KeyType::SECP256K1,
+            SecretKey::DILITHIUM(_) => KeyType::DILITHIUM,
         }
     }
 
     #[cfg(feature = "rand")]
     pub fn from_random(key_type: KeyType) -> SecretKey {
+        use qp_rusty_crystals_dilithium::SensitiveBytes32;
         use secp256k1::rand::rngs::OsRng;
 
         match key_type {
@@ -338,6 +431,13 @@ impl SecretKey {
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_keypair_bytes()))
             }
             KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut OsRng)),
+            KeyType::DILITHIUM => {
+                use rand::RngCore;
+                let mut entropy = [0u8; 32];
+                OsRng.fill_bytes(&mut entropy);
+                let keypair = ml_dsa_87::Keypair::generate(SensitiveBytes32::from(&mut entropy));
+                SecretKey::DILITHIUM(DilithiumSecretKey(keypair.to_bytes()))
+            }
         }
     }
 
@@ -359,6 +459,14 @@ impl SecretKey {
                 buf[64] = rec_id.to_i32() as u8;
                 Signature::SECP256K1(Secp256K1Signature(buf))
             }
+
+            SecretKey::DILITHIUM(secret_key) => {
+                let keypair = ml_dsa_87::Keypair::from_bytes(&secret_key.0)
+                    .expect("invalid dilithium keypair");
+                // Sign without context (None) and without hedging (None)
+                let sig = keypair.sign(data, None, None).expect("signing failed");
+                Signature::DILITHIUM(DilithiumSignature(sig))
+            }
         }
     }
 
@@ -374,24 +482,45 @@ impl SecretKey {
                 public_key.0.copy_from_slice(&serialized[1..65]);
                 PublicKey::SECP256K1(public_key)
             }
+            SecretKey::DILITHIUM(secret_key) => {
+                // Public key is stored after the secret key in the keypair bytes
+                let mut pk_bytes = [0u8; ml_dsa_87::PUBLICKEYBYTES];
+                pk_bytes.copy_from_slice(
+                    &secret_key.0[ml_dsa_87::SECRETKEYBYTES..ml_dsa_87::KEYPAIRBYTES],
+                );
+                PublicKey::DILITHIUM(DilithiumPublicKey(pk_bytes))
+            }
         }
     }
 
     pub fn unwrap_as_ed25519(&self) -> &ED25519SecretKey {
         match self {
             SecretKey::ED25519(key) => key,
-            SecretKey::SECP256K1(_) => panic!(),
+            SecretKey::SECP256K1(_) | SecretKey::DILITHIUM(_) => panic!(),
+        }
+    }
+
+    pub fn unwrap_as_dilithium(&self) -> &DilithiumSecretKey {
+        match self {
+            SecretKey::DILITHIUM(key) => key,
+            SecretKey::ED25519(_) | SecretKey::SECP256K1(_) => panic!(),
         }
     }
 }
 
 impl std::fmt::Display for SecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let (key_type, key_data) = match self {
-            SecretKey::ED25519(secret_key) => (KeyType::ED25519, &secret_key.0[..]),
-            SecretKey::SECP256K1(secret_key) => (KeyType::SECP256K1, &secret_key[..]),
-        };
-        write!(f, "{}:{}", key_type, Bs58(key_data))
+        match self {
+            SecretKey::ED25519(secret_key) => {
+                write!(f, "{}:{}", KeyType::ED25519, Bs58(&secret_key.0[..]))
+            }
+            SecretKey::SECP256K1(secret_key) => {
+                write!(f, "{}:{}", KeyType::SECP256K1, Bs58(&secret_key[..]))
+            }
+            SecretKey::DILITHIUM(secret_key) => {
+                write!(f, "{}:{}", KeyType::DILITHIUM, DilithiumBs58(&secret_key.0[..]))
+            }
+        }
     }
 }
 
@@ -407,6 +536,9 @@ impl FromStr for SecretKey {
                 let sk = secp256k1::SecretKey::from_slice(&data)
                     .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 Self::SECP256K1(sk)
+            }
+            KeyType::DILITHIUM => {
+                Self::DILITHIUM(DilithiumSecretKey(decode_bs58_dilithium_keypair(key_data)?))
             }
         })
     }
@@ -510,11 +642,34 @@ impl Debug for Secp256K1Signature {
     }
 }
 
+/// Dilithium (ML-DSA-87) signature wrapper.
+#[derive(Clone, Eq, PartialEq, Hash, derive_more::From, derive_more::Into, ProtocolSchema)]
+pub struct DilithiumSignature(pub [u8; ml_dsa_87::SIGNBYTES]);
+
+impl TryFrom<&[u8]> for DilithiumSignature {
+    type Error = crate::errors::ParseSignatureError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
+            expected_length: ml_dsa_87::SIGNBYTES,
+            received_length: data.len(),
+        })
+    }
+}
+
+impl Debug for DilithiumSignature {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        Display::fmt(&DilithiumBs58(&self.0), f)
+    }
+}
+
 /// Signature container supporting different curves.
 #[derive(Clone, PartialEq, Eq, ProtocolSchema)]
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),
+    /// Post-quantum Dilithium (ML-DSA-87) signature.
+    DILITHIUM(DilithiumSignature),
 }
 
 // This `Hash` implementation is safe since it retains the property
@@ -524,6 +679,7 @@ impl Hash for Signature {
         match self {
             Signature::ED25519(sig) => sig.to_bytes().hash(state),
             Signature::SECP256K1(sig) => sig.hash(state),
+            Signature::DILITHIUM(sig) => sig.hash(state),
         };
     }
 }
@@ -546,6 +702,13 @@ impl Signature {
                 Ok(Signature::SECP256K1(Secp256K1Signature::try_from(signature_data).map_err(
                     |_| crate::errors::ParseSignatureError::InvalidData {
                         error_message: "invalid Secp256k1 signature length".to_string(),
+                    },
+                )?))
+            }
+            KeyType::DILITHIUM => {
+                Ok(Signature::DILITHIUM(DilithiumSignature::try_from(signature_data).map_err(
+                    |_| crate::errors::ParseSignatureError::InvalidData {
+                        error_message: "invalid dilithium signature length".to_string(),
                     },
                 )?))
             }
@@ -593,6 +756,12 @@ impl Signature {
                 };
                 SECP256K1.verify_ecdsa(&message, &sig, &pub_key).is_ok()
             }
+            (Signature::DILITHIUM(signature), PublicKey::DILITHIUM(public_key)) => {
+                match ml_dsa_87::PublicKey::from_bytes(&public_key.0) {
+                    Err(_) => false,
+                    Ok(pk) => pk.verify(data, &signature.0, None),
+                }
+            }
             _ => false,
         }
     }
@@ -601,6 +770,7 @@ impl Signature {
         match self {
             Signature::ED25519(_) => KeyType::ED25519,
             Signature::SECP256K1(_) => KeyType::SECP256K1,
+            Signature::DILITHIUM(_) => KeyType::DILITHIUM,
         }
     }
 }
@@ -620,6 +790,10 @@ impl BorshSerialize for Signature {
             }
             Signature::SECP256K1(signature) => {
                 BorshSerialize::serialize(&1u8, writer)?;
+                writer.write_all(&signature.0)?;
+            }
+            Signature::DILITHIUM(signature) => {
+                BorshSerialize::serialize(&2u8, writer)?;
                 writer.write_all(&signature.0)?;
             }
         }
@@ -648,6 +822,10 @@ impl BorshDeserialize for Signature {
                 let array: [u8; 65] = BorshDeserialize::deserialize_reader(rd)?;
                 Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
+            KeyType::DILITHIUM => {
+                let array: [u8; ml_dsa_87::SIGNBYTES] = BorshDeserialize::deserialize_reader(rd)?;
+                Ok(Signature::DILITHIUM(DilithiumSignature(array)))
+            }
         }
     }
 }
@@ -655,14 +833,18 @@ impl BorshDeserialize for Signature {
 impl Display for Signature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let buf;
-        let (key_type, key_data) = match self {
+        match self {
             Signature::ED25519(signature) => {
                 buf = signature.to_bytes();
-                (KeyType::ED25519, &buf[..])
+                write!(f, "{}:{}", KeyType::ED25519, Bs58(&buf[..]))
             }
-            Signature::SECP256K1(signature) => (KeyType::SECP256K1, &signature.0[..]),
-        };
-        write!(f, "{}:{}", key_type, Bs58(&key_data))
+            Signature::SECP256K1(signature) => {
+                write!(f, "{}:{}", KeyType::SECP256K1, Bs58(&signature.0[..]))
+            }
+            Signature::DILITHIUM(signature) => {
+                write!(f, "{}:{}", KeyType::DILITHIUM, DilithiumBs58(&signature.0[..]))
+            }
+        }
     }
 }
 
@@ -696,6 +878,9 @@ impl FromStr for Signature {
                 Signature::ED25519(sig)
             }
             KeyType::SECP256K1 => Signature::SECP256K1(Secp256K1Signature(decode_bs58(sig_data)?)),
+            KeyType::DILITHIUM => {
+                Signature::DILITHIUM(DilithiumSignature(decode_bs58_dilithium_sig(sig_data)?))
+            }
         })
     }
 }
@@ -744,6 +929,21 @@ impl<'a> core::fmt::Display for Bs58<'a> {
     }
 }
 
+/// Helper struct for encoding large Dilithium keys/signatures to base58.
+/// Dilithium keys and signatures are much larger than ED25519/SECP256K1,
+/// so we need a larger buffer.
+struct DilithiumBs58<'a>(&'a [u8]);
+
+impl<'a> core::fmt::Display for DilithiumBs58<'a> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Dilithium keypair is up to 7488 bytes. Base58 increases size by ~37%.
+        // We need a buffer of at least 7488 * 1.4 ≈ 10500 bytes.
+        // Use heap allocation for these large sizes.
+        let encoded = bs58::encode(self.0).into_string();
+        fmt.write_str(&encoded)
+    }
+}
+
 /// Helper which decodes fixed-length base58-encoded data.
 ///
 /// If the encoded string decodes into a buffer of different length than `N`,
@@ -764,6 +964,31 @@ fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error
         }
         Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
     }
+}
+
+/// Decode base58-encoded Dilithium public key (2592 bytes).
+fn decode_bs58_dilithium_pk(
+    encoded: &str,
+) -> Result<[u8; ml_dsa_87::PUBLICKEYBYTES], DecodeBs58Error> {
+    let mut buffer = [0u8; ml_dsa_87::PUBLICKEYBYTES];
+    decode_bs58_impl(&mut buffer[..], encoded)?;
+    Ok(buffer)
+}
+
+/// Decode base58-encoded Dilithium signature (4627 bytes).
+fn decode_bs58_dilithium_sig(encoded: &str) -> Result<[u8; ml_dsa_87::SIGNBYTES], DecodeBs58Error> {
+    let mut buffer = [0u8; ml_dsa_87::SIGNBYTES];
+    decode_bs58_impl(&mut buffer[..], encoded)?;
+    Ok(buffer)
+}
+
+/// Decode base58-encoded Dilithium keypair (7488 bytes).
+fn decode_bs58_dilithium_keypair(
+    encoded: &str,
+) -> Result<[u8; ml_dsa_87::KEYPAIRBYTES], DecodeBs58Error> {
+    let mut buffer = [0u8; ml_dsa_87::KEYPAIRBYTES];
+    decode_bs58_impl(&mut buffer[..], encoded)?;
+    Ok(buffer)
 }
 
 enum DecodeBs58Error {
@@ -803,7 +1028,7 @@ mod tests {
     #[cfg(feature = "rand")]
     #[test]
     fn test_sign_verify() {
-        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1, KeyType::DILITHIUM] {
             let secret_key = SecretKey::from_random(key_type);
             let public_key = secret_key.public_key();
             use sha2::Digest;
@@ -817,15 +1042,17 @@ mod tests {
     fn signature_verify_fuzzer() {
         bolero::check!().with_type().for_each(
             |(key_type, sign, data, public_key): &(KeyType, [u8; 65], Vec<u8>, PublicKey)| {
+                // Note: We can't fuzz dilithium signatures with only 65 bytes,
+                // since dilithium signatures are 4627 bytes
                 let signature = match key_type {
                     KeyType::ED25519 => {
                         Signature::from_parts(KeyType::ED25519, &sign[..64]).unwrap()
                     }
-                    KeyType::SECP256K1 => {
+                    KeyType::SECP256K1 | KeyType::DILITHIUM => {
                         Signature::from_parts(KeyType::SECP256K1, &sign[..65]).unwrap()
                     }
                 };
-                let _ = signature.verify(&data, &public_key);
+                let _ = signature.verify(data, public_key);
             },
         );
     }
@@ -894,12 +1121,49 @@ mod tests {
 
     #[cfg(feature = "rand")]
     #[test]
+    fn test_dilithium_sign_verify() {
+        use sha2::Digest;
+
+        // Test key generation
+        let sk = SecretKey::from_seed(KeyType::DILITHIUM, "dilithium_test_seed");
+        let pk = sk.public_key();
+        assert_eq!(pk.key_type(), KeyType::DILITHIUM);
+
+        // Test signing and verification
+        let data = sha2::Sha256::digest(b"test message for dilithium").to_vec();
+        let signature = sk.sign(&data);
+        assert_eq!(signature.key_type(), KeyType::DILITHIUM);
+        assert!(signature.verify(&data, &pk));
+
+        // Test that verification fails with wrong data
+        let wrong_data = sha2::Sha256::digest(b"wrong message").to_vec();
+        assert!(!signature.verify(&wrong_data, &pk));
+
+        // Test that verification fails with wrong key
+        let sk2 = SecretKey::from_seed(KeyType::DILITHIUM, "different_seed");
+        let pk2 = sk2.public_key();
+        assert!(!signature.verify(&data, &pk2));
+
+        // Test string serialization roundtrip
+        let pk_str = pk.to_string();
+        assert!(pk_str.starts_with("dilithium:"));
+        let pk_parsed: PublicKey = pk_str.parse().unwrap();
+        assert_eq!(pk, pk_parsed);
+
+        let sig_str = signature.to_string();
+        assert!(sig_str.starts_with("dilithium:"));
+        let sig_parsed: Signature = sig_str.parse().unwrap();
+        assert_eq!(signature, sig_parsed);
+    }
+
+    #[cfg(feature = "rand")]
+    #[test]
     fn test_borsh_serialization() {
         use borsh::BorshDeserialize;
         use sha2::Digest;
 
         let data = sha2::Sha256::digest(b"123").to_vec();
-        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1, KeyType::DILITHIUM] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
             let bytes = borsh::to_vec(&pk).unwrap();

@@ -767,6 +767,15 @@ fn validate_add_key_action(
 ) -> Result<(), ActionsValidationError> {
     validate_access_key_permission(limit_config, &action.access_key.permission)?;
 
+    // Check if Dilithium keys are enabled for this protocol version
+    if matches!(action.public_key, near_crypto::PublicKey::DILITHIUM(_)) {
+        require_protocol_feature(
+            ProtocolFeature::DilithiumSignatures,
+            "DilithiumSignatures",
+            current_protocol_version,
+        )?;
+    }
+
     // If this is a gas key, apply additional gas key validation
     if let Some(gas_key_info) = action.access_key.gas_key_info() {
         require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;

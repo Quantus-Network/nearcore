@@ -263,6 +263,19 @@ impl ValidatedTransaction {
         {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
+
+        // Check if Dilithium signatures are enabled for this protocol version
+        if matches!(signed_tx.transaction.public_key(), PublicKey::DILITHIUM(_))
+            && !ProtocolFeature::DilithiumSignatures.enabled(protocol_version)
+        {
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                crate::errors::InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signed_tx.transaction.signer_id().clone(),
+                    public_key: Box::new(signed_tx.transaction.public_key().clone()),
+                },
+            ));
+        }
+
         let tx_size = signed_tx.get_size();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {

@@ -103,11 +103,12 @@ impl Node for RuntimeNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RuntimeUser::new(
+        Box::new(RuntimeUser::new_with_protocol_version(
             self.account_id.clone(),
             self.signer.clone(),
             self.client.clone(),
             self.gas_price,
+            self.genesis.config.protocol_version,
         ))
     }
 }

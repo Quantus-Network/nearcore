@@ -453,6 +453,9 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let receiver_id = match public_key.key_type() {
         KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
         KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+        KeyType::DILITHIUM => {
+            unimplemented!("dilithium implicit accounts are not supported yet")
+        }
     };
 
     let transfer_cost = match receiver_id.get_account_type() {
@@ -542,6 +545,9 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let receiver_id = match public_key.key_type() {
         KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
         KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+        KeyType::DILITHIUM => {
+            unimplemented!("dilithium implicit accounts are not supported yet")
+        }
     };
 
     let transaction_result = node_user
@@ -1003,6 +1009,20 @@ pub fn test_swap_key(node: impl Node) {
 pub fn test_add_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
+    let node_user = node.user();
+
+    add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
+
+    assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
+}
+
+/// Same as test_add_key but uses a Dilithium key. Requires protocol version with DilithiumSignatures.
+pub fn test_add_key_dilithium(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let signer2 =
+        InMemorySigner::from_seed("test".parse().unwrap(), KeyType::DILITHIUM, "dilithium_seed")
+            .into();
     let node_user = node.user();
 
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);

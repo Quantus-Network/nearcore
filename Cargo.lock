@@ -4295,6 +4295,7 @@ dependencies = [
  "near-schema-checker-lib",
  "near-stdx",
  "primitive-types 0.10.1",
+ "qp-rusty-crystals-dilithium",
  "rand 0.8.5",
  "schemars 1.2.1",
  "secp256k1",
@@ -4654,6 +4655,7 @@ dependencies = [
  "nearcore",
  "openssl-probe",
  "parking_lot 0.12.1",
+ "qp-rusty-crystals-dilithium",
  "rand_core 0.6.4",
  "rocksdb",
  "secp256k1",
@@ -6401,6 +6403,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "qp-rusty-crystals-dilithium"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d734438e080d69fa186dac23565dd261fa8146048af00ba8aea7467b429c104b"
+dependencies = [
+ "zeroize",
 ]
 
 [[package]]
@@ -9896,9 +9907,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.6.0"
+version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a0956f1ba7c7909bfb66c2e9e4124ab6f6482560f6628b5aaeba39207c9aad9"
+checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 dependencies = [
  "zeroize_derive",
 ]

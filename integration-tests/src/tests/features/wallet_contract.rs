@@ -462,6 +462,9 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
             let (public_key_kind, public_key) = match add_key.public_key {
                 PublicKey::ED25519(key) => (0, key.as_ref().to_vec()),
                 PublicKey::SECP256K1(key) => (1, key.as_ref().to_vec()),
+                PublicKey::DILITHIUM(_) => {
+                    unimplemented!("dilithium keys are not supported in wallet contract yet")
+                }
             };
             let nonce = add_key.access_key.nonce;
             let (is_full_access, is_limited_allowance, allowance, receiver_id, method_names) =

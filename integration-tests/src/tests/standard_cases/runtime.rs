@@ -1,13 +1,26 @@
 use crate::node::RuntimeNode;
 use crate::tests::standard_cases::*;
+use crate::user::RuntimeUser;
 use near_chain_configs::Genesis;
-use near_crypto::SecretKey;
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_primitives::state_record::StateRecord;
+use near_primitives::version::ProtocolFeature;
 use std::sync::Arc;
-use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
+use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 fn create_runtime_node() -> RuntimeNode {
     RuntimeNode::new(&alice_account())
+}
+
+/// Creates a RuntimeNode with protocol version 202 (DilithiumSignatures enabled).
+/// Use for tests that exercise Dilithium keys.
+fn create_runtime_node_with_dilithium() -> RuntimeNode {
+    let mut genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
+    genesis.config.protocol_version = ProtocolFeature::DilithiumSignatures.protocol_version();
+    add_test_contract(&mut genesis, &alice_account());
+    add_test_contract(&mut genesis, &bob_account());
+    add_test_contract(&mut genesis, &carol_account());
+    RuntimeNode::new_from_genesis(&alice_account(), genesis)
 }
 
 fn create_free_runtime_node() -> RuntimeNode {
@@ -210,6 +223,51 @@ fn test_swap_key_runtime() {
 fn test_add_key_runtime() {
     let node = create_runtime_node();
     test_add_key(node);
+}
+
+#[test]
+fn test_add_key_dilithium_runtime() {
+    let node = create_runtime_node_with_dilithium();
+    test_add_key_dilithium(node);
+}
+
+#[test]
+fn test_transfer_signed_by_dilithium_runtime() {
+    use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use near_primitives::account::AccessKey;
+    use near_primitives::views::FinalExecutionStatus;
+    use near_primitives_core::types::Balance;
+
+    let node = create_runtime_node_with_dilithium();
+    let account_id = node.account_id().unwrap();
+    let node_user = node.user();
+
+    // Add Dilithium key to alice
+    let dilithium_signer: Arc<Signer> = Arc::new(
+        InMemorySigner::from_seed(account_id.clone(), KeyType::DILITHIUM, "dilithium_seed").into(),
+    );
+    let add_key_result = node_user
+        .add_key(account_id.clone(), dilithium_signer.public_key(), AccessKey::full_access())
+        .unwrap();
+    assert_eq!(add_key_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+
+    // Send money using the Dilithium signer (must use protocol 202 for Dilithium)
+    let dilithium_user = RuntimeUser::new_with_protocol_version(
+        account_id.clone(),
+        dilithium_signer,
+        node.client.clone(),
+        node.genesis().config.min_gas_price,
+        node.genesis().config.protocol_version,
+    );
+    let money_used = Balance::from_yoctonear(10000);
+    let transaction_result =
+        dilithium_user.send_money(account_id.clone(), bob_account(), money_used).unwrap();
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+
+    let alice_balance = node_user.view_account(&account_id).unwrap().amount;
+    let bob_balance = node_user.view_account(&bob_account()).unwrap().amount;
+    assert!(alice_balance < TESTING_INIT_BALANCE);
+    assert!(bob_balance > TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
 }
 
 #[test]

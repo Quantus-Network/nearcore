@@ -50,6 +50,7 @@ near-primitives-core.workspace = true
 near-o11y.workspace = true
 near-store.workspace = true
 near-crypto.workspace = true
+qp-rusty-crystals-dilithium.workspace = true
 
 [features]
 nightly = [
